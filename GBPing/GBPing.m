@@ -540,11 +540,10 @@ static NSTimeInterval const kDefaultTimeout =           2.0;
             });
             
             //add a timeout timer
-            //add a timeout timer
             NSTimer *timeoutTimer = [NSTimer scheduledTimerWithTimeInterval:self.timeout
                                                                      target:[NSBlockOperation blockOperationWithBlock:^{
 
-                                                                         newPingSummary.status = GBPingStatusFail;
+                                                                         pingSummaryCopy.status = GBPingStatusFail;
 
                                                                          //notify about the failure
                                                                          if (self.delegate && [self.delegate respondsToSelector:@selector(ping:didTimeoutWithSummary:)]) {
@@ -560,7 +559,6 @@ static NSTimeInterval const kDefaultTimeout =           2.0;
                                                                    selector:@selector(main)
                                                                    userInfo:nil
                                                                     repeats:NO];
-            [[NSRunLoop mainRunLoop] addTimer:timeoutTimer forMode:NSRunLoopCommonModes];
             
             //keep a local ref to it
             if (self.timeoutTimers) {

@@ -366,7 +366,19 @@ static NSTimeInterval const kDefaultTimeout =           2.0;
     enum { kBufferSize = 65535 };
     
     buffer = malloc(kBufferSize);
-    assert(buffer);
+    
+    if( !buffer )
+    {
+        [self assertWithError:[NSError
+                               errorWithDomain:@"com.gbping"
+                               code:0
+                               userInfo:@{
+                                   NSLocalizedDescriptionKey : NSLocalizedString(@"failed to allocate buffer in listenOnce", nil),
+                               }]];
+        
+        return;
+    }
+
     
     //read the data.
     addrLen = sizeof(addr);
@@ -388,13 +400,33 @@ static NSTimeInterval const kDefaultTimeout =           2.0;
             NSMutableData *packet;
 
             packet = [NSMutableData dataWithBytes:buffer length:(NSUInteger) bytesRead];
-            assert(packet);
+            
+            if( !packet )
+            {
+                [self assertWithError:[NSError
+                errorWithDomain:@"com.gbping"
+                code:0
+                userInfo:@{
+                    NSLocalizedDescriptionKey : NSLocalizedString(@"failed to allocate packet in listenOnce", nil),
+                }]];
+                
+                return;
+            }
 
             //complete the ping summary
             const struct ICMPHeader *headerPointer;
             
             if (sin->sin_family == AF_INET) {
-                headerPointer = [[self class] icmp4InPacket:packet];
+                NSError *error = nil;
+                headerPointer = [[self class] icmp4InPacket:packet
+                                                      error:&error];
+                
+                if( error != nil )
+                {
+                    [self assertWithError:error];
+                    return;
+                }
+                
             } else {
                 headerPointer = (const struct ICMPHeader *)[packet bytes];
             }
@@ -498,7 +530,14 @@ static NSTimeInterval const kDefaultTimeout =           2.0;
                 packet = [self pingPacketWithType:kICMPv6TypeEchoRequest payload:payload requiresChecksum:NO];
             } break;
             default: {
-                assert(NO);
+                [self assertWithError:[NSError
+                errorWithDomain:@"com.gbping"
+                code:0
+                userInfo:@{
+                    NSLocalizedDescriptionKey : NSLocalizedString(@"unrecognized hostAddressFamily in sendPing", nil),
+                }]];
+                
+                return;
             } break;
         }
         
@@ -717,6 +756,7 @@ static uint16_t in_cksum(const void *buffer, size_t bufferLen)
 }
 
 + (NSUInteger)icmp4HeaderOffsetInPacket:(NSData *)packet
+                                  error:(NSError**)error
 // Returns the offset of the ICMPHeader within an IP packet.
 {
     NSUInteger              result;
@@ -726,8 +766,37 @@ static uint16_t in_cksum(const void *buffer, size_t bufferLen)
     result = NSNotFound;
     if ([packet length] >= (sizeof(IPHeader) + sizeof(ICMPHeader))) {
         ipPtr = (const IPHeader *) [packet bytes];
-        assert((ipPtr->versionAndHeaderLength & 0xF0) == 0x40);     // IPv4
-        assert(ipPtr->protocol == 1);                               // ICMP
+        
+        //assert((ipPtr->versionAndHeaderLength & 0xF0) == 0x40);     // IPv4
+        if( (ipPtr->versionAndHeaderLength & 0xF0) != 0x40 )
+        {
+            if( error != nil )
+            {
+                *error = [NSError
+                errorWithDomain:@"com.gbping"
+                code:0
+                userInfo:@{
+                    NSLocalizedDescriptionKey : NSLocalizedString(@"bad versionAndHeaderLength in icmp4HeaderOffsetInPacket", nil),
+                }];
+            }
+            return NSNotFound;
+        }
+        
+        //assert(ipPtr->protocol == 1);                               // ICMP
+        if( ipPtr->protocol != 1 )
+        {
+            if( error != nil )
+            {
+                *error = [NSError
+                errorWithDomain:@"com.gbping"
+                code:0
+                userInfo:@{
+                    NSLocalizedDescriptionKey : NSLocalizedString(@"bad protocol in icmp4HeaderOffsetInPacket", nil),
+                }];
+            }
+            return NSNotFound;
+        }
+
         ipHeaderLength = (ipPtr->versionAndHeaderLength & 0x0F) * sizeof(uint32_t);
         if ([packet length] >= (ipHeaderLength + sizeof(ICMPHeader))) {
             result = ipHeaderLength;
@@ -737,14 +806,17 @@ static uint16_t in_cksum(const void *buffer, size_t bufferLen)
 }
 
 + (const struct ICMPHeader *)icmp4InPacket:(NSData *)packet
+                                     error:(NSError**)error
 // See comment in header.
 {
     const struct ICMPHeader *   result;
     NSUInteger                  icmpHeaderOffset;
     
     result = nil;
-    icmpHeaderOffset = [self icmp4HeaderOffsetInPacket:packet];
-    if (icmpHeaderOffset != NSNotFound) {
+    icmpHeaderOffset = [self icmp4HeaderOffsetInPacket:packet
+                                                 error:error];
+    
+    if( icmpHeaderOffset != NSNotFound ) {
         result = (const struct ICMPHeader *) (((const uint8_t *)[packet bytes]) + icmpHeaderOffset);
     }
     return result;
@@ -762,7 +834,12 @@ static uint16_t in_cksum(const void *buffer, size_t bufferLen)
             result = [self isValidPing6ResponsePacket:packet];
         } break;
         default: {
-            assert(NO);
+            [self assertWithError:[NSError
+            errorWithDomain:@"com.gbping"
+            code:0
+            userInfo:@{
+                NSLocalizedDescriptionKey : NSLocalizedString(@"bad hostAddressFamily in isValidPingResponsePacket", nil),
+            }]];
             result = NO;
         } break;
     }
@@ -779,9 +856,19 @@ static uint16_t in_cksum(const void *buffer, size_t bufferLen)
     uint16_t            receivedChecksum;
     uint16_t            calculatedChecksum;
     
+    NSError *error = nil;
+    
     result = NO;
     
-    icmpHeaderOffset = [[self class] icmp4HeaderOffsetInPacket:packet];
+    icmpHeaderOffset = [[self class] icmp4HeaderOffsetInPacket:packet
+                                                         error:&error];
+    
+    if( error != nil )
+    {
+        [self assertWithError:error];
+        return NO;
+    }
+    
     if (icmpHeaderOffset != NSNotFound) {
         icmpPtr = (struct ICMPHeader *) (((uint8_t *)[packet mutableBytes]) + icmpHeaderOffset);
         
@@ -852,7 +939,16 @@ static uint16_t in_cksum(const void *buffer, size_t bufferLen)
     ICMPHeader *            icmpPtr;
     
     packet = [NSMutableData dataWithLength:sizeof(*icmpPtr) + payload.length];
-    assert(packet != nil);
+
+    if( packet == nil )
+    {
+        [self assertWithError:[NSError
+                               errorWithDomain:@"com.gbping"
+                               code:0
+                               userInfo:@{
+                                   NSLocalizedDescriptionKey : NSLocalizedString(@"nil packet in pingPacketWithType", nil),
+                               }]];
+    }
     
     icmpPtr = packet.mutableBytes;
     icmpPtr->type = type;
@@ -880,6 +976,15 @@ static uint16_t in_cksum(const void *buffer, size_t bufferLen)
         result = ((const struct sockaddr *) self.hostAddress.bytes)->sa_family;
     }
     return result;
+}
+
+- (void) assertWithError:(NSError*)error
+{
+    if( [self.delegate respondsToSelector:@selector(ping:didAssertWithError:)] )
+    {
+        [self.delegate ping:self
+           didFailWithError:error];
+    }
 }
 
 #pragma mark - memory

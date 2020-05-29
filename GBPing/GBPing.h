@@ -47,4 +47,9 @@ typedef void(^StartupCallback)(BOOL success, NSError *error);
 -(void)ping:(GBPing *)pinger didReceiveReplyWithSummary:(GBPingSummary *)summary;
 -(void)ping:(GBPing *)pinger didReceiveUnexpectedReplyWithSummary:(GBPingSummary *)summary;
 
+/*!
+ * replace GBPing's assert calls with this so our ping containers can fail gracefully
+ */
+-(void)ping:(GBPing *)pinger didAssertWithError:(NSError*)error;
+
 @end

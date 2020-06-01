@@ -990,7 +990,7 @@ static uint16_t in_cksum(const void *buffer, size_t bufferLen)
     if( [self.delegate respondsToSelector:@selector(ping:didAssertWithError:)] )
     {
         [self.delegate ping:self
-           didFailWithError:error];
+         didAssertWithError:error];
     }
 }
 
